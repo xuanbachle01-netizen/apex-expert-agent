@@ -1,0 +1,11 @@
+{
+  "credentialName": "Anthropic account 2",
+  "models": {
+    "lead": "anthropic/claude-sonnet-5-5",
+    "analyst": "anthropic/claude-sonnet-5-5",
+    "developer": "anthropic/claude-sonnet-5-5",
+    "tester": "anthropic/claude-sonnet-5-5"
+  },
+  "ordsBaseUrl": "https://linux-dev:8080/ords/",
+  "skillSource": "apexlang-skill"
+}

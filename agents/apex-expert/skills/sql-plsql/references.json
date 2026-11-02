@@ -1,0 +1,6 @@
+[
+  { "path": "references/apex.sql.md", "from": "references/policies/memory-bank/20-data/apex.sql.md" },
+  { "path": "references/apex.logic.md", "from": "references/policies/memory-bank/20-data/apex.logic.md" },
+  { "path": "references/apex.schema-modeling.md", "from": "references/policies/memory-bank/20-data/apex.schema-modeling.md" },
+  { "path": "references/utplsql.rules.md", "from": "references/policies/memory-bank/20-data/utplsql.rules.md" }
+]

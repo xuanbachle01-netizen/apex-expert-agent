@@ -1,0 +1,15 @@
+{
+  "name": "n8n-workflows",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Version-controlled n8n workflows, synced with a local n8n instance via its REST API",
+  "type": "module",
+  "scripts": {
+    "pull": "node scripts/pull.js",
+    "push": "node scripts/push.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "playwright-core": "^1.64.1"
+  }
+}

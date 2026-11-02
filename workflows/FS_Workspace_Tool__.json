@@ -1,0 +1,83 @@
+{
+  "name": "FS_Workspace_Tool",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "### FS Workspace (Tool)\nBackend for the FS_Write / FS_Read / FS_List tools in the dev-team workflows. A single Code node does sandboxed file ops (write/read/list) directly against workspace/<session>/ in the repo -- no server involved.\n\n**Requires** the n8n process to run with NODE_FUNCTION_ALLOW_BUILTIN=fs,path,child_process so Code nodes may use Node builtins.",
+        "height": 220,
+        "width": 440,
+        "color": 7
+      },
+      "id": "3daedb74-7d4f-4bab-9766-3f6dc8c2111f",
+      "name": "Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "operation",
+              "type": "string"
+            },
+            {
+              "name": "file_path",
+              "type": "string"
+            },
+            {
+              "name": "content",
+              "type": "string"
+            },
+            {
+              "name": "session",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "bac79bb2-9138-4415-b577-3d94a0dc653f",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        64,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Sandboxed workspace file ops (write/read/list/delete) -- no server needed.\n// Requires NODE_FUNCTION_ALLOW_BUILTIN=fs,path on the n8n process.\nconst fsMod = require('fs');\nconst pathMod = require('path');\nconst WS_ROOT = '@@PROJECT_ROOT@@\\\\workspace';\nconst READ_CAP = 15000;\n\nconst j = $input.first().json;\nconst op = String(j.operation || 'list').toLowerCase();\nconst session = String(j.session || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);\nconst fail = (error) => [{ json: { result: JSON.stringify({ ok: false, error }) } }];\nif (!session) return fail('missing or invalid session');\n// The session's working folder: chosen on the APEX Squad web page (workspace/.squad-sessions/<session>.json),\n// else \"workingFolder\" in squad-install.config.json, else WS_ROOT. Same rule as the Squad Code nodes.\nfunction workingFolder(key) {\n  const read = (f) => { try { return JSON.parse(fsMod.readFileSync(f, 'utf8')) || {}; } catch (e) { return {}; } };\n  return read(pathMod.join(WS_ROOT, '.squad-sessions', key + '.json')).workingFolder ||\n    read(pathMod.join(WS_ROOT, '..', 'squad-install.config.json')).workingFolder || WS_ROOT;\n}\nconst dir = pathMod.join(workingFolder(session), session);\n\nfunction safeJoin(rel) {\n  const clean = String(rel || '').replace(/\\\\/g, '/').replace(/^[A-Za-z]:/, '')\n    .split('/').filter((s) => s && s !== '.' && s !== '..').join(pathMod.sep);\n  if (!clean) return null;\n  const abs = pathMod.join(dir, clean);\n  if (!abs.startsWith(dir + pathMod.sep) && abs !== dir) return null;\n  return { abs, rel: clean.replace(/\\\\/g, '/') };\n}\n\nfunction listFiles(d) {\n  const out = [];\n  if (!fsMod.existsSync(d)) return out;\n  for (const e of fsMod.readdirSync(d, { withFileTypes: true })) {\n    const full = pathMod.join(d, e.name);\n    if (e.isDirectory()) out.push(...listFiles(full));\n    else out.push({ path: pathMod.relative(dir, full).split(pathMod.sep).join('/'), bytes: fsMod.statSync(full).size });\n  }\n  return out;\n}\n\nif (op === 'list') {\n  return [{ json: { result: JSON.stringify({ ok: true, workspace: 'workspace/' + session, files: listFiles(dir) }) } }];\n}\nconst target = safeJoin(j.file_path);\nif (!target) return fail('missing or invalid file_path (relative paths only, e.g. src/app.js)');\nif (op === 'write') {\n  const content = j.content;\n  if (typeof content !== 'string' || content.length === 0) return fail('content (non-empty string) is required -- pass the COMPLETE file content');\n  fsMod.mkdirSync(pathMod.dirname(target.abs), { recursive: true });\n  fsMod.writeFileSync(target.abs, content, 'utf8');\n  return [{ json: { result: JSON.stringify({ ok: true, wrote: target.rel, bytes: Buffer.byteLength(content, 'utf8') }) } }];\n}\nif (op === 'read') {\n  if (!fsMod.existsSync(target.abs)) return fail('file not found: ' + target.rel + ' -- use FS_List to see what exists');\n  let content = fsMod.readFileSync(target.abs, 'utf8');\n  const truncated = content.length > READ_CAP;\n  if (truncated) content = content.slice(0, READ_CAP);\n  return [{ json: { result: JSON.stringify({ ok: true, file: target.rel, truncated, content }) } }];\n}\nif (op === 'delete') {\n  // .apexlang/ is the shared state and history, maintained by the Squad Code nodes.\n  if (target.rel === '.apexlang' || target.rel.startsWith('.apexlang/')) return fail('files under .apexlang/ are maintained by code and cannot be deleted');\n  if (!fsMod.existsSync(target.abs)) return fail('file not found: ' + target.rel + ' -- use FS_List to see what exists');\n  if (!fsMod.statSync(target.abs).isFile()) return fail('only single files can be deleted, not folders: ' + target.rel);\n  fsMod.unlinkSync(target.abs);\n  return [{ json: { result: JSON.stringify({ ok: true, deleted: target.rel }) } }];\n}\nreturn fail('unknown operation: ' + op);"
+      },
+      "id": "a1b2c3d4-0000-4000-8000-fsworkspace1",
+      "name": "FS Operation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        288
+      ]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "FS Operation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

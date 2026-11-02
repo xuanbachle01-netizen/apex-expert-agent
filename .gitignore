@@ -1,0 +1,16 @@
+node_modules/
+.env
+*.log
+logs/
+dist/
+squad-install.config.json
+agents/apex-expert/apex-expert.local.json
+agents/apex-expert/*.agent.json
+apexlang-skill/.tmp-validate/
+__pycache__/
+# workflows/: only the id-less templates <name>__.json are shared; builds and pulls write <name>__<id>.json
+workflows/*
+!workflows/*__.json
+# workspace/: the projects of this machine
+workspace/*
+!workspace/.gitkeep

@@ -1,0 +1,5 @@
+[
+  { "path": "references/oracle/SKILL.md", "from": "SKILL.md" },
+  { "path": "references/oracle/domains-README.md", "from": "references/domains/README.md" },
+  { "path": "references/oracle/prompt-contracts.md", "from": "references/workflows/apexlang/prompt-contracts.md" }
+]

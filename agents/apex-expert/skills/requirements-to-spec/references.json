@@ -1,0 +1,8 @@
+[
+  { "path": "references/application-spec.template.md", "from": "references/workflows/apexlang/application-spec.template.md" },
+  { "path": "references/workflow-create-app-from-fr-and-model.md", "from": "references/workflows/apexlang/workflow-create-app-from-fr-and-model.md" },
+  { "path": "references/apexlang-skeleton-prompt.md", "from": "references/workflows/apex-generation/apexlang-skeleton-prompt.md" },
+  { "path": "references/apex.schema-modeling.md", "from": "references/policies/memory-bank/20-data/apex.schema-modeling.md" },
+  { "path": "references/apex.page.md", "from": "references/policies/memory-bank/30-pages/apex.page.md" },
+  { "path": "references/apex.layout.md", "from": "references/policies/memory-bank/30-pages/apex.layout.md" }
+]

@@ -1,0 +1,4 @@
+[
+  { "dir": "references/policies/memory-bank/40-components", "as": "references/" },
+  { "path": "references/apex.global.md", "from": "references/policies/memory-bank/10-global/apex.global.md" }
+]

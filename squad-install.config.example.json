@@ -1,0 +1,17 @@
+{
+  "enabled": true,
+  "connection": "APEX_AI",
+  "workspace": "APEX_AI",
+  "schema": "APEX_AI",
+  "sqlcl": "~\\AppData\\Local\\sqlcl-current\\sqlcl\\bin\\sql.exe",
+  "workingFolder": "workspace",
+  "allowedFolders": ["~"],
+  "maxAttempts": 3,
+  "models": {
+    "orchestrator": "Claude Opus 5.5",
+    "skill": "Claude Sonnet 5",
+    "engineer": "Claude Sonnet 5.5",
+    "reviewer": "Claude Opus 5"
+  },
+  "modelChoices": ["Claude Opus 5.5", "Claude Opus 5", "Claude Sonnet 5.5", "Claude Sonnet 5"]
+}

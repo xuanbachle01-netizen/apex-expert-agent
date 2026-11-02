@@ -1,0 +1,9 @@
+[
+  { "path": "references/apexlang-dsl-reference.md", "from": "references/policies/apexlang-dsl-reference.md" },
+  { "path": "references/compiler-prop-map.md", "from": "references/policies/compiler-prop-map.md" },
+  { "path": "references/apexlang-execution-model.md", "from": "references/workflows/apexlang/apexlang-execution-model.md" },
+  { "path": "references/sqlcl.md", "from": "references/ops/sqlcl.md" },
+  { "path": "references/runtime-gates.md", "from": "references/ops/runtime-gates.md" },
+  { "path": "references/01-direct-sqlcl-import.md", "from": "references/ops/runtime-gates/01-direct-sqlcl-import.md" },
+  { "path": "references/02-direct-sqlcl-validate-gate.md", "from": "references/ops/runtime-gates/02-direct-sqlcl-validate-gate.md" }
+]
