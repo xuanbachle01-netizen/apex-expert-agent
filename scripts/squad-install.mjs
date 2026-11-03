@@ -136,7 +136,7 @@ function install(cfg, sessionDir, force) {
     if (!t) return { ok: null, status: 'unavailable', text: where + ': UNAVAILABLE -- could not connect: ' + connectFailure(run) };
     writeJson(TARGET_FILE, t);
     if (!t.workspaceFound) {
-      return { ok: null, status: 'unavailable', text: where + ': UNAVAILABLE -- APEX workspace ' + cfg.workspace + ' is not assigned to schema ' + t.schema + '. Fix "workspace" in squad-install.config.json.' };
+      return { ok: null, status: 'unavailable', text: where + ': UNAVAILABLE -- APEX workspace ' + cfg.workspace + ' is not assigned to schema ' + t.schema + '. Fix APEX_WORKSPACE in .env.' };
     }
     if (/SQUAD_GUARD/.test(run.stdout)) {
       return {

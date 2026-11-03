@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Database tool of the APEX Expert agent (n8n workflow APEX_Agent_Tools runs it).
-// Everything goes through SQLcl on the connection + APEX workspace configured in
-// squad-install.config.json (APEX_AI); agents cannot choose another target.
+// Everything goes through SQLcl on the connection + APEX workspace set in .env
+// (APEX_CONNECTION, APEX_WORKSPACE; scripts/lib/sqlcl.mjs loadConfig); agents cannot
+// choose another target.
 //
-// Usage: node scripts/apex-agent-db.mjs --op <op> [--session <key>] [--app-id <n>] [--text-file <file>] [--json]
+// Usage: node scripts/apex-agent-db.mjs --op <op> [--session <key>] [--app-id <n>] [--text-file <file>] [--debug] [--json]
 //   target      connection, schema, APEX and compiler versions (asks the database)
 //   query       ONE read-only SELECT / WITH from --text-file; CSV, at most 200 rows
 //   execute     a SQL / PL/SQL script from --text-file, committed; reports errors and invalid objects
@@ -15,6 +16,7 @@
 //               (--text-file may list page numbers; default all except login/global pages)
 //   ui_test     runs a scenario of browser steps on application --app-id in headless Edge
 //               (--text-file: a JSON array of steps, or a scenario file in the project; scripts/lib/ui-test.mjs)
+// --debug (page_check, ui_test): APEX debug on for the tool's session, plus its errors from apex_debug_messages
 // --json prints { ok, status, text }: ok true = done/clean, false = errors to fix, null = could not run.
 
 import fs from 'node:fs';
@@ -24,7 +26,7 @@ import http from 'node:http';
 import { spawnSync } from 'node:child_process';
 import {
   ROOT, WS_ROOT, CONFIG_FILE, REGISTRY_DIR, TMP_ROOT, readJson, writeJson, clip, posix, loadConfig, configPaths, findAppRoot, walk, runSqlcl, sections,
-  SETTINGS, TARGET_SQL, workspaceSql, parseTarget, connectFailure, target, parseSqlErrors, parseCompilerOutput, groupByMessage, stageApp,
+  SETTINGS, TARGET_SQL, workspaceSql, parseTarget, connectFailure, target, parseSqlErrors, parseCompilerOutput, groupByMessage, stageApp, runSqlclAsync,
 } from './lib/sqlcl.mjs';
 
 const SQLCL_TIMEOUT_MS = 100 * 1000; // n8n cancels a workflow tool after 120 s
@@ -42,6 +44,7 @@ const json = args.includes('--json');
 const op = option('--op');
 const session = option('--session').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
 const appIdArg = option('--app-id').trim();
+const debug = args.includes('--debug');
 const textFile = option('--text-file');
 const text = textFile && fs.existsSync(textFile) ? fs.readFileSync(textFile, 'utf8') : '';
 
@@ -327,6 +330,62 @@ function install() {
   }
 }
 
+// ---------------------------------------------------------------- debug trace
+// Page_Check and UI_Test with debug: the tool turns APEX debug on for the session it logged
+// into (apex_session.set_debug works whatever the app's debugging setting is), and reports
+// what that session logged in apex_debug_messages: per page view the counts and time, and
+// the errors / warnings with the two messages before each (usually the owning component).
+const DEBUG_LEVEL = 6; // apex_debug.c_log_level_app_trace: processes, validations, SQL, AJAX calls
+async function setDebug(cfg, sessionId) {
+  const run = await runSqlclAsync(cfg, [...SETTINGS, "exec apex_util.set_workspace('" + cfg.workspace + "')", 'prompt ==SQUAD:DEBUG==',
+    'exec apex_session.set_debug(p_session_id => ' + sessionId + ', p_level => ' + DEBUG_LEVEL + ')', 'prompt ==SQUAD:END==', 'exit'].join('\n') + '\n', 30 * 1000);
+  const sec = sections(run.stdout).find((s) => s.name === 'DEBUG');
+  if (!sec) return 'could not turn debug on: ' + connectFailure(run);
+  const errors = parseSqlErrors(sec.lines);
+  return errors.length ? 'could not turn debug on: ' + errors.map((e) => e.message).join(' | ') : '';
+}
+
+// modalPages: the page ids Page_Check opened directly although they are modal dialogs.
+async function debugReport(cfg, appId, sessionId, timeoutMs, modalPages = []) {
+  const where = 'session_id = ' + sessionId + ' and application_id = ' + appId;
+  const flat = (col, n) => "replace(replace(substr(" + col + ", 1, " + n + "), chr(10), ' '), chr(13), ' ')";
+  const run = await runSqlclAsync(cfg, [...SETTINGS, 'prompt ==SQUAD:VIEWS==',
+    "select '#PV#' || page_view_id || '|' || max(page_id) || '|' || count(*) || '|' || sum(case when message_level = 1 then 1 else 0 end) || '|' || sum(case when message_level = 2 then 1 else 0 end) || '|' || to_char(max(elapsed_time), 'fm9990.000') " +
+      'from apex_debug_messages where ' + where + ' group by page_view_id order by min(id);',
+    'prompt ==SQUAD:MSGS==',
+    'with m as (select id, page_view_id, page_id, message_level, elapsed_time, message, ' +
+      'lag(message, 1) over (partition by page_view_id order by id) p1, lag(message, 2) over (partition by page_view_id order by id) p2 ' +
+      'from apex_debug_messages where ' + where + " and message_level <= 4) " +
+      "select '#MSG#' || page_view_id || '|' || page_id || '|' || message_level || '|' || to_char(elapsed_time, 'fm9990.000') || '|' || " + flat('message', 500) + " || '|' || " + flat('p2', 160) + " || '|' || " + flat('p1', 160) + ' ' +
+      "from m where message_level <= 2 or regexp_like(message, '(ORA|PLS)-[0-9]{5}') order by id fetch first 40 rows only;",
+    'prompt ==SQUAD:END==', 'exit'].join('\n') + '\n', timeoutMs);
+  const secs = sections(run.stdout);
+  const views = secs.find((s) => s.name === 'VIEWS');
+  if (!views || !secs.find((s) => s.name === 'END')) return 'Debug trace: UNAVAILABLE -- ' + connectFailure(run);
+  const rows = (name, tag) => ((secs.find((s) => s.name === name) || { lines: [] }).lines.map((l) => l.trim()).filter((l) => l.startsWith(tag)).map((l) => l.slice(tag.length).split('|')));
+  const pv = rows('VIEWS', '#PV#');
+  // Page_Check loads a modal page on its own, outside a dialog; APEX then logs that it cannot render it as a dialog.
+  const standalone = /Dialog page \d+ cannot be rendered successfully/;
+  const dropped = new Set();
+  const msgs = rows('MSGS', '#MSG#').filter((m) => !(modalPages.includes(+m[1]) && standalone.test(m[4]) && dropped.add(m[1])));
+  if (!pv.length) return 'Debug trace (APEX session ' + sessionId + '): no debug messages were recorded.';
+  const out = ['Debug trace (APEX session ' + sessionId + ', level ' + DEBUG_LEVEL + '): ' + pv.length + ' page view(s).'];
+  for (const [id, page, n, errs, warns, secsUsed] of pv) out.push('  page_view_id ' + id + ': page ' + (page || '?') + ', ' + n + ' messages, ' + errs + ' error(s), ' + warns + ' warning(s), ' + secsUsed + ' s');
+  if (dropped.size) out.push('  (Not shown: "Dialog page cannot be rendered" on modal page(s) ' + [...dropped].join(', ') + ', because Page_Check opens them outside a dialog. That is not an app error; test modal pages with UI_Test.)');
+  if (msgs.length) {
+    out.push('Errors and warnings (level 1 = error, 2 = warning), each after the two messages before it:');
+    for (const [id, page, level, at, message, p2, p1] of msgs) {
+      out.push('  [' + id + ' page ' + page + ' level ' + level + ' at ' + at + ' s] ' + message);
+      const before = [p2, p1].map((x) => (x || '').trim()).filter(Boolean);
+      if (before.length) out.push('      after: ' + before.map((x) => JSON.stringify(x)).join(' -> '));
+    }
+  } else {
+    out.push('No errors or warnings were logged.');
+  }
+  out.push('Full log of one page view: SQL_Query select message_level, elapsed_time, message from apex_debug_messages where page_view_id = <id> order by id');
+  return out.join('\n');
+}
+
 // ---------------------------------------------------------------- page check through ORDS
 function httpClient(base) {
   const jar = new Map();
@@ -442,10 +501,16 @@ async function pageCheck(cfg) {
     sessionId = (first.url.match(/[?&]session=(\d+)/) || [])[1] || '';
     out.push('No login asked (public start page).');
   }
+  let debugNote = '';
+  if (debug) {
+    debugNote = sessionId ? await setDebug(cfg, sessionId) : 'no APEX session id to debug';
+    if (debugNote) out.push('Debug: ' + debugNote + '; pages are checked without it.');
+  }
+  const debugOn = debug && !debugNote;
 
   let failed = 0;
   for (const p of pages) {
-    if (Date.now() - started > 90 * 1000) { out.push('... stopped after 90 s; check the remaining pages in another call: ' + pages.slice(pages.indexOf(p)).map((x) => x.id).join(', ')); break; }
+    if (Date.now() - started > (debugOn ? 75 : 90) * 1000) { out.push('... stopped after 90 s; check the remaining pages in another call: ' + pages.slice(pages.indexOf(p)).map((x) => x.id).join(', ')); break; }
     const url = appUrl + (p.alias ? p.alias.toLowerCase() : String(p.id)) + (sessionId ? '?session=' + sessionId : '');
     const res = await client.get(url);
     const errs = pageErrors(res.body);
@@ -455,6 +520,7 @@ async function pageCheck(cfg) {
     out.push((bad ? 'FAIL' : 'ok  ') + ' page ' + p.id + ' ' + JSON.stringify(p.name) + (p.mode && p.mode !== 'Normal' ? ' [' + p.mode + ']' : '') + ' -- HTTP ' + (res.status || res.error) +
       (titleOf(res.body) ? ', title "' + clip(titleOf(res.body), 80) + '"' : '') + (relogin ? ', redirected to the login page' : '') + (errs.length ? '\n      errors: ' + errs.join(' | ') : ''));
   }
+  if (debugOn) out.push('', await debugReport(cfg, info.app.id, sessionId, 25 * 1000, pages.filter((p) => /modal/i.test(p.mode)).map((p) => p.id)));
   return {
     ok: failed === 0, status: failed ? 'failed' : 'passed', failed,
     text: 'Page_Check: application ' + info.app.id + ' "' + info.app.name + '" at ' + appUrl + ' -- ' + (failed ? failed + ' of ' + pages.length + ' page(s) FAILED' : 'all ' + pages.length + ' page(s) rendered without errors') + '.\n' + out.join('\n') +
@@ -491,14 +557,20 @@ async function uiTest(cfg) {
   const appUrl = base + 'r/' + cfg.workspace.toLowerCase() + '/' + info.app.alias.toLowerCase() + '/';
   // Watchdog: whatever hangs, answer before n8n cancels the tool at 120 s (finish() exits the process).
   const watchdog = new Promise((resolve) => setTimeout(() => resolve({ ok: null, status: 'unavailable', text: 'UI_Test: UNAVAILABLE -- the browser did not finish within 105 s; split the scenario or check the step that hangs.' }), Math.max(10000, started + 105 * 1000 - Date.now())).unref());
+  let debugOn = false;
   const r = await Promise.race([watchdog, runUiTest({
     appUrl, pages: info.pages, steps: parsed.steps, user: env.APEX_TEST_USER, password: env.APEX_TEST_PASSWORD,
     outDir: dir ? path.join(dir, 'test-results', new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)) : '',
-    // n8n cancels the tool after 120 s; leave time for the last step and the report.
-    deadline: started + 85 * 1000,
+    // Project-relative, the way FS_* and View_Screenshot take paths.
+    shotName: (file) => (dir ? posix(path.relative(dir, file)) : file),
+    // n8n cancels the tool after 120 s; leave time for the last step and the report (and the debug report).
+    deadline: started + (debug ? 70 : 85) * 1000,
+    onLogin: debug ? async (sid) => { const problem = await setDebug(cfg, sid); debugOn = !problem; return problem; } : null,
   })]);
   const head = 'UI_Test: application ' + info.app.id + ' "' + info.app.name + '" at ' + appUrl + source + ' -- ';
-  return { ...r, text: (r.text.startsWith('UI_Test:') ? r.text : head + r.text) + (r.status === 'usage' ? '\n' + STEPS_HELP : '') };
+  let trace = '';
+  if (debugOn && r.apexSession) trace = '\n\n' + await debugReport(cfg, info.app.id, r.apexSession, Math.max(5000, started + 108 * 1000 - Date.now()));
+  return { ...r, text: (r.text.startsWith('UI_Test:') ? r.text : head + r.text) + trace + (r.status === 'usage' ? '\n' + STEPS_HELP : '') };
 }
 
 // ---------------------------------------------------------------- main

@@ -74,8 +74,11 @@ fs.mkdirSync(path.join(OUT, 'workspace'));
 fs.writeFileSync(path.join(OUT, 'workspace', '.gitkeep'), '');
 
 // Leak scan: every .env value of 6+ characters, and the home folder in plain and JSON-escaped form.
+// Not the URL and the database target names: they are no secrets, and a name like APEX_AI also
+// occurs in Oracle's APIs (apex_ai.set_tool_result).
 const home = os.homedir();
-const needles = [...Object.entries(env).filter(([k, v]) => v && v.length >= 6 && k !== 'N8N_BASE_URL'),
+const NOT_SCANNED = new Set(['N8N_BASE_URL', 'APEX_CONNECTION', 'APEX_WORKSPACE', 'APEX_SCHEMA']);
+const needles = [...Object.entries(env).filter(([k, v]) => v && v.length >= 6 && !NOT_SCANNED.has(k)),
   ['home folder', home], ['home folder', home.replace(/\\/g, '\\\\')], ['home folder', home.replace(/\\/g, '/')]];
 const hits = [];
 (function scan(dir) {

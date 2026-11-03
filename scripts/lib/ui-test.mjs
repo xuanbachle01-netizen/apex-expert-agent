@@ -16,11 +16,12 @@ const clip = (s, n) => { s = String(s ?? '').replace(/\s+/g, ' ').trim(); return
 export const STEPS_HELP = 'Steps: a JSON array, one action per step: ' +
   '{"go": <page number or alias>} | {"fill": "P10_NAME", "value": "text"} (text fields; select lists, radio groups and switches by label or value; popup LOVs by return value; dates as shown in the field) | ' +
   '{"click": "<visible label of a button, link, tab or menu entry>"} | {"press": "Enter"} | {"wait": <seconds, max 10>} | ' +
-  '{"see": "text"} | {"notSee": "text"} | {"seeItem": "P10_NAME", "value": "x"} | {"seePage": <number or alias>}. ' +
+  '{"see": "text"} | {"notSee": "text"} | {"seeItem": "P10_NAME", "value": "x"} | {"seePage": <number or alias>} | {"shot": "<name>"} (a screenshot; View_Screenshot looks at it). ' +
   'Steps act inside an open modal dialog until it closes.';
 
-const ACTIONS = ['go', 'fill', 'click', 'press', 'wait', 'see', 'notSee', 'seeItem', 'seePage'];
-const CHECKS = new Set(['see', 'notSee', 'seeItem', 'seePage']);
+const ACTIONS = ['go', 'fill', 'click', 'press', 'wait', 'see', 'notSee', 'seeItem', 'seePage', 'shot'];
+// Steps that only look: they do not wait for the page, and a failed one does not stop the scenario.
+const CHECKS = new Set(['see', 'notSee', 'seeItem', 'seePage', 'shot']);
 
 // Steps from the tool input: a JSON array, or { "steps": [...] }. Returns { steps } or { problem }.
 export function parseSteps(text) {
@@ -216,8 +217,10 @@ async function launch() {
 }
 
 // appUrl = <ORDS>/r/<workspace>/<app alias>/; pages = [{ id, alias, name }] of the app;
-// outDir = where screenshots go ('' = none); deadline = Date.now() value to stop by.
-export async function runUiTest({ appUrl, pages, steps, user, password, outDir, deadline }) {
+// outDir = where screenshots go ('' = none); shotName(file) = how a screenshot is named in the report;
+// deadline = Date.now() value to stop by; onLogin(apexSessionId) = called once logged in (debug), returns
+// a problem text or ''. Results after the login carry the APEX session id the scenario ran in (apexSession).
+export async function runUiTest({ appUrl, pages, steps, user, password, outDir, shotName = (f) => f, deadline, onLogin }) {
   const out = [];
   const shots = [];
   const { browser, problem } = await launch();
@@ -234,12 +237,14 @@ export async function runUiTest({ appUrl, pages, steps, user, password, outDir, 
   page.on('response', (r) => { if (r.status() >= 500 && new URL(r.url()).host === host) problems.push('HTTP ' + r.status() + ' from ' + clip(r.url().replace(/\?.*/, ''), 120)); });
   page.on('dialog', (d) => { problems.push('browser ' + d.type() + ' "' + clip(d.message(), 120) + '" accepted'); d.accept().catch(() => {}); });
   const drain = () => { const p = [...new Set(problems)]; problems = []; return p; };
+  let apexSession = '';
   const shot = async (name) => {
-    if (!outDir) return;
+    if (!outDir) return '';
     fs.mkdirSync(outDir, { recursive: true });
     const file = path.join(outDir, name + '.png');
-    await page.screenshot({ path: file, fullPage: true }).catch(() => {});
-    shots.push(file);
+    if (!(await page.screenshot({ path: file, fullPage: true }).then(() => true, () => false))) return '';
+    shots.push(shotName(file));
+    return shots[shots.length - 1];
   };
   const pageLabel = (id) => {
     const p = pages.find((x) => String(x.id) === String(id));
@@ -270,6 +275,11 @@ export async function runUiTest({ appUrl, pages, steps, user, password, outDir, 
       out.push('Logged in as ' + user + ', now on ' + await where() + '.');
     } else {
       out.push('No login asked, now on ' + await where() + '.');
+    }
+    apexSession = (await frameState(page.mainFrame())).session;
+    if (onLogin) {
+      const problem = apexSession ? await onLogin(apexSession) : 'no APEX session id';
+      if (problem) out.push('Debug: ' + problem + '; the scenario runs without it.');
     }
     drain();
 
@@ -311,6 +321,11 @@ export async function runUiTest({ appUrl, pages, steps, user, password, outDir, 
           await page.keyboard.press(String(step.press));
         } else if (action === 'wait') {
           await page.waitForTimeout(Math.min(10, Math.max(0, Number(step.wait) || 1)) * 1000);
+        } else if (action === 'shot') {
+          if (!outDir) throw new Error('screenshots need a project: pass session');
+          const saved = await shot('step-' + n + '-' + String(step.shot).replace(/[^\w-]+/g, '-').slice(0, 40));
+          if (!saved) throw new Error('the screenshot could not be taken');
+          detail = ' -> ' + saved;
         }
         if (!CHECKS.has(action)) await settle(page);
         f = await activeFrame(page);
@@ -379,12 +394,13 @@ export async function runUiTest({ appUrl, pages, steps, user, password, outDir, 
     if (shots.length) out.push('Screenshots: ' + shots.join(', '));
     const ran = Math.min(steps.length, stoppedAt ? stoppedAt - 1 : steps.length);
     return {
+      apexSession,
       ok: failed === 0 && !stoppedAt, status: failed ? 'failed' : stoppedAt ? 'incomplete' : 'passed', failed,
       text: (failed ? failed + ' step(s) FAILED' : stoppedAt ? 'stopped after ' + ran + ' of ' + steps.length + ' steps' : 'all ' + steps.length + ' steps passed') + '.\n' + out.join('\n'),
     };
   } catch (e) {
     await shot('error');
-    return { ok: null, status: 'unavailable', text: 'UI_Test: UNAVAILABLE -- ' + clip(e.message, 500) + '\n' + out.join('\n') + (shots.length ? '\nScreenshot: ' + shots.join(', ') : '') };
+    return { apexSession, ok: null, status: 'unavailable', text: 'UI_Test: UNAVAILABLE -- ' + clip(e.message, 500) + '\n' + out.join('\n') + (shots.length ? '\nScreenshot: ' + shots.join(', ') : '') };
   } finally {
     await browser.close().catch(() => {});
   }

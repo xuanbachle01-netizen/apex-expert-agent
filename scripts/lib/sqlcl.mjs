@@ -6,8 +6,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { envValue } from './env.mjs';
 
 export const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 export const CONFIG_FILE = path.join(ROOT, 'squad-install.config.json');
@@ -46,13 +47,21 @@ export function configPaths(cfg) {
   return cfg;
 }
 
-// squad-install.config.json with a session's saved database choice applied, or { problem }.
-// A `note` is set when the configured SQLcl was missing and another one was picked.
+// The database target: APEX_CONNECTION / APEX_WORKSPACE / APEX_SCHEMA in .env (or the process
+// environment) over "connection" / "workspace" / "schema" in the config file. The build
+// scripts put the same values into the agents' prompts (scripts/lib/env.mjs).
+const TARGET_VARS = { connection: 'APEX_CONNECTION', workspace: 'APEX_WORKSPACE', schema: 'APEX_SCHEMA' };
+
+// squad-install.config.json with the .env target and a session's saved database choice
+// applied, or { problem }. A `note` is set when the configured SQLcl was missing and another
+// one was picked.
 export function loadConfig(sessionSettings) {
   if (!fs.existsSync(CONFIG_FILE)) return { problem: 'NOT CONFIGURED -- squad-install.config.json does not exist.' };
   const cfg = readJson(CONFIG_FILE);
   if (!cfg) return { problem: 'NOT CONFIGURED -- squad-install.config.json is not valid JSON.' };
   configPaths(cfg);
+  for (const [key, name] of Object.entries(TARGET_VARS)) if (envValue(name)) cfg[key] = envValue(name);
+  if (!cfg.schema) cfg.schema = cfg.workspace;
   const db = (sessionSettings && sessionSettings.database) || null;
   if (db) {
     if (db.enabled === false) return { problem: 'DISABLED for this session (no database chosen on the APEX Squad page).' };
@@ -62,8 +71,8 @@ export function loadConfig(sessionSettings) {
   }
   if (cfg.enabled === false) return { problem: 'DISABLED ("enabled": false in squad-install.config.json).' };
   // Both values end up in SQLcl commands, so keep them to plain identifiers.
-  if (!/^[A-Za-z0-9_$#.-]{1,128}$/.test(cfg.connection || '')) return { problem: 'NOT CONFIGURED -- "connection" must be the name of a saved SQLcl connection.' };
-  if (!/^[A-Za-z0-9_$#-]{1,255}$/.test(cfg.workspace || '')) return { problem: 'NOT CONFIGURED -- "workspace" must be the APEX workspace name.' };
+  if (!/^[A-Za-z0-9_$#.-]{1,128}$/.test(cfg.connection || '')) return { problem: 'NOT CONFIGURED -- APEX_CONNECTION in .env must be the name of a saved SQLcl connection.' };
+  if (!/^[A-Za-z0-9_$#-]{1,255}$/.test(cfg.workspace || '')) return { problem: 'NOT CONFIGURED -- APEX_WORKSPACE in .env must be the APEX workspace name.' };
   if (/prod/i.test(cfg.connection) && cfg.allowProduction !== true) {
     return { problem: 'BLOCKED -- connection "' + cfg.connection + '" looks like production. Agent-written SQL is not installed there unless "allowProduction": true is set.' };
   }
@@ -128,23 +137,46 @@ export function walk(dir, base = dir) {
   return out.sort();
 }
 
+const sqlclArgs = (cfg) => ['-S', '-nohistory', '-noupdates', '-name', cfg.connection];
+// English messages (the output is parsed) and UTF-8 in both directions.
+const sqlclEnv = () => ({ ...process.env, JAVA_TOOL_OPTIONS: '-Duser.language=en -Duser.country=US -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8' });
+function sqlclResult(cfg, status, stdout, stderr, error) {
+  const strip = (s) => String(s || '').replace(/\x1b\[[0-9;]*m/g, '').replace(/\r/g, '');
+  return {
+    code: typeof status === 'number' ? status : 1,
+    stdout: strip(stdout),
+    stderr: strip(stderr).split('\n').filter((l) => !/^\s+at |^Picked up JAVA_TOOL_OPTIONS|SqlCli <init>|HomeMigrationWarning|AccessDeniedException/.test(l)).join('\n').trim(),
+    spawnError: error ? (error.code === 'ENOENT' ? 'SQLcl not found ("' + (cfg.sqlcl || 'sql') + '"); set "sqlcl" in squad-install.config.json to the full path of sql.exe' : String(error.message || error)) : '',
+  };
+}
+
 export function runSqlcl(cfg, script, timeoutMs = SQLCL_TIMEOUT_MS) {
-  const r = spawnSync(cfg.sqlcl || 'sql', ['-S', '-nohistory', '-noupdates', '-name', cfg.connection], {
+  const r = spawnSync(cfg.sqlcl || 'sql', sqlclArgs(cfg), {
     input: script,
     encoding: 'utf8',
     timeout: timeoutMs,
     maxBuffer: 64 * 1024 * 1024,
     windowsHide: true,
-    // English messages (the output is parsed) and UTF-8 in both directions.
-    env: { ...process.env, JAVA_TOOL_OPTIONS: '-Duser.language=en -Duser.country=US -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8' },
+    env: sqlclEnv(),
   });
-  const strip = (s) => String(s || '').replace(/\x1b\[[0-9;]*m/g, '').replace(/\r/g, '');
-  return {
-    code: typeof r.status === 'number' ? r.status : 1,
-    stdout: strip(r.stdout),
-    stderr: strip(r.stderr).split('\n').filter((l) => !/^\s+at |^Picked up JAVA_TOOL_OPTIONS|SqlCli <init>|HomeMigrationWarning|AccessDeniedException/.test(l)).join('\n').trim(),
-    spawnError: r.error ? (r.error.code === 'ENOENT' ? 'SQLcl not found ("' + (cfg.sqlcl || 'sql') + '"); set "sqlcl" in squad-install.config.json to the full path of sql.exe' : String(r.error.message || r.error)) : '',
-  };
+  return sqlclResult(cfg, r.status, r.stdout, r.stderr, r.error);
+}
+
+// The same without blocking the event loop (UI_Test drives a browser meanwhile).
+export function runSqlclAsync(cfg, script, timeoutMs = SQLCL_TIMEOUT_MS) {
+  return new Promise((resolve) => {
+    let out = '';
+    let err = '';
+    let failure = null;
+    const child = spawn(cfg.sqlcl || 'sql', sqlclArgs(cfg), { windowsHide: true, env: sqlclEnv() });
+    const timer = setTimeout(() => { failure = new Error('SQLcl timed out after ' + Math.round(timeoutMs / 1000) + ' s'); child.kill(); }, timeoutMs);
+    child.stdout.setEncoding('utf8').on('data', (d) => { out += d; });
+    child.stderr.setEncoding('utf8').on('data', (d) => { err += d; });
+    child.on('error', (e) => { failure = failure || e; });
+    child.on('close', (code) => { clearTimeout(timer); resolve(sqlclResult(cfg, code, out, err, failure)); });
+    child.stdin.on('error', () => {});
+    child.stdin.end(script, 'utf8');
+  });
 }
 
 // Output between `prompt ==SQUAD:NAME[:arg]==` markers, in order.
@@ -201,16 +233,21 @@ export function compilerText(cfg, t) {
     : '.');
 }
 
+// The prompts name APEX_SCHEMA as the agents' schema; say so when the connection lands elsewhere.
+const schemaText = (cfg, t) => (cfg.schema && t.schema && cfg.schema.toUpperCase() !== t.schema.toUpperCase()
+  ? ' WARNING: APEX_SCHEMA is ' + cfg.schema + ', but connection ' + cfg.connection + ' works in schema ' + t.schema + '; fix APEX_SCHEMA or APEX_CONNECTION in .env and rebuild the agents.'
+  : '');
+
 export function target(cfg, forceProbe) {
   const cached = readJson(TARGET_FILE);
   if (!forceProbe && cached && cached.connection === cfg.connection && cached.workspace === cfg.workspace) {
-    return { ok: true, status: 'target', target: cached, text: targetText(cached) + compilerText(cfg, cached) };
+    return { ok: true, status: 'target', target: cached, text: targetText(cached) + compilerText(cfg, cached) + schemaText(cfg, cached) };
   }
   const run = runSqlcl(cfg, [...SETTINGS, ...TARGET_SQL, workspaceSql(cfg), 'exit'].join('\n') + '\n');
   const t = parseTarget(cfg, sections(run.stdout));
   if (!t) return { ok: null, status: 'unavailable', text: 'Database target: UNAVAILABLE -- could not connect with SQLcl connection ' + cfg.connection + ': ' + connectFailure(run) };
   writeJson(TARGET_FILE, t);
-  return { ok: true, status: 'target', target: t, text: targetText(t) + compilerText(cfg, t) };
+  return { ok: true, status: 'target', target: t, text: targetText(t) + compilerText(cfg, t) + schemaText(cfg, t) };
 }
 
 // Errors in one SQL script's output: failed statements ("Error starting at

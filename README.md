@@ -15,14 +15,13 @@ installing and maintaining it.
    ```
    cp .env.example .env
    ```
-   Set `N8N_BASE_URL` (default `http://localhost:5678`; not `N8N_HOST`: n8n reads `.env` from the folder it starts in and takes `N8N_HOST` as its own hostname), `N8N_API_KEY`, `N8N_EMAIL` / `N8N_PASSWORD` (your n8n login, for the Agents API) and `APEX_TEST_USER` / `APEX_TEST_PASSWORD` (for Page_Check).
+   Set `N8N_BASE_URL` (default `http://localhost:5678`; not `N8N_HOST`: n8n reads `.env` from the folder it starts in and takes `N8N_HOST` as its own hostname), `N8N_API_KEY`, `N8N_EMAIL` / `N8N_PASSWORD` (your n8n login, for the Agents API), `APEX_TEST_USER` / `APEX_TEST_PASSWORD` (for Page_Check) and the database target `APEX_CONNECTION` / `APEX_WORKSPACE` / `APEX_SCHEMA` (see **Database target** below).
 3. Install dependencies:
    ```
    npm install
    ```
 4. Copy `squad-install.config.example.json` to `squad-install.config.json`
-   if you don't have one yet, and set your SQLcl connection, APEX workspace
-   and SQLcl path (see **Database target** below).
+   if you don't have one yet, and set the SQLcl path.
 5. Start n8n from this folder with
    `NODE_FUNCTION_ALLOW_BUILTIN=fs,path,child_process` (set it user-wide with
    `setx NODE_FUNCTION_ALLOW_BUILTIN "fs,path,child_process"`). The tool Code
@@ -63,12 +62,13 @@ contains a `.env` value or the home folder path.
    `agents/apex-expert/apex-expert.json`. In the same file, set `ordsBaseUrl`
    to your ORDS address.
 6. Save a SQLcl connection with its password, for example
-   `sql /nolog`, then `conn -save APEX_AI -savepwd <user>/<password>@//<host>:<port>/<service>`.
+   `sql /nolog`, then `conn -save <connection name> -savepwd <user>/<password>@//<host>:<port>/<service>`.
 7. Copy `squad-install.config.example.json` to `squad-install.config.json`
-   and set `connection`, `workspace`, `schema` and the paths. Use **absolute**
-   paths for `sqlcl`, `workingFolder` and `allowedFolders`, because the helper
-   workflows' Code nodes do not expand `~` yet.
-8. Copy `.env.example` to `.env` and fill it in (see **Setup**).
+   and set the paths. Use **absolute** paths for `sqlcl`, `workingFolder` and
+   `allowedFolders`, because the helper workflows' Code nodes do not expand
+   `~` yet.
+8. Copy `.env.example` to `.env` and fill it in (see **Setup**), with the
+   connection name from step 6 as `APEX_CONNECTION`.
 9. Run `node scripts/squad-install.mjs --probe` (it reads the APEX and DB versions),
    then `node scripts/build-apex-expert.mjs`. On a fresh n8n the build:
    - imports and activates the helper workflows
@@ -88,9 +88,9 @@ APEX target are written as `@@NAME@@` tokens, which
 | `@@PROJECT_ROOT@@` | this checkout's folder | Code nodes, saved workflows |
 | `@@USER_HOME@@` | your home folder | Code nodes (`~` in the config) |
 | `@@NODE_EXE@@` | the node running the script | Code nodes |
-| `@@APEX_CONNECTION@@` | `connection` in squad-install.config.json | prompts, skills, tool descriptions |
-| `@@APEX_WORKSPACE@@` | `workspace` in squad-install.config.json | prompts, skills, chat page |
-| `@@APEX_SCHEMA@@` | `schema`, else `workspace` | prompts, skills |
+| `@@APEX_CONNECTION@@` | `APEX_CONNECTION` in .env (else `connection` in squad-install.config.json) | prompts, skills, tool descriptions |
+| `@@APEX_WORKSPACE@@` | `APEX_WORKSPACE` in .env (else `workspace` in the config) | prompts, skills, chat page |
+| `@@APEX_SCHEMA@@` | `APEX_SCHEMA` in .env (else `schema`, else the workspace) | prompts, skills |
 | `@@ORDS_BASE_URL@@` | `ordsBaseUrl` in agents/apex-expert/apex-expert.json | Page_Check description |
 | `@@APEX_APP_URL@@` | `<ORDS>/r/<workspace, lower case>/` | prompts, skills |
 | `@@APEX_VERSION@@` | last database probe, e.g. `26.1` | prompts, skills, chat page |
@@ -150,7 +150,7 @@ scripts/              build-apex-expert.mjs, apex-agent-db.mjs (database tools),
 workflows/            <name>__.json: templates of the two helper workflows (imported on a fresh n8n);
                       <name>__<id>.json: this n8n's workflows as saved by build / pull (git-ignored)
 workspace/            one folder per project (8-char key); .apex-agent/sql-log/; .squad-install/ (app pins)
-squad-install.config.json           database target + SQLcl (per machine, git-ignored)
+squad-install.config.json           SQLcl path, working folder (per machine, git-ignored; the target is in .env)
 squad-install.config.example.json   portable template of it
 ```
 
@@ -178,7 +178,7 @@ on the credential named there. The ids of a machine's agents are in
 | Workflow | Provides |
 |---|---|
 | APEX Expert Chat | The chat page that runs APEX Expert (workflow) |
-| APEX_Agent_Tools | New_Project, SQL_Query, SQL_Execute, Export_App, Check_App, Install_App, Page_Check, UI_Test |
+| APEX_Agent_Tools | New_Project, SQL_Query, SQL_Execute, Export_App, Check_App, Install_App, Page_Check, UI_Test, View_Screenshot |
 | FS_Workspace_Tool | FS_List, FS_Read, FS_Write, FS_Delete |
 | Squad_APEXlang_Tools | Valid_Props, Example (the name is from an earlier project) |
 
@@ -194,7 +194,7 @@ spec -> Developer -> Tester, with up to 3 Developer rounds.
   of another app).
 - Export_App exports an app as APEXlang into a project, pinned to that app id.
 - They all run through `scripts/apex-agent-db.mjs` with SQLcl on the
-  connection in `squad-install.config.json`.
+  connection `APEX_CONNECTION` from `.env`.
 - A project is a folder `workspace/<8-char key>/` with the app under `app/`.
   A project made by Export_App UPDATES that application when installed.
 
@@ -229,6 +229,41 @@ run by `apex-agent-db.mjs --op ui_test`. Try it by hand:
 echo [{"go": 2}, {"click": "Create Task"}] > steps.json
 node scripts/apex-agent-db.mjs --op ui_test --app-id 100 --text-file steps.json
 ```
+
+A `{"shot": "<name>"}` step saves a screenshot at that moment. UI_Test also
+saves one at the end, and one when a step fails. The result lists their
+paths, relative to the project.
+
+**Debug trace** (`debug: "yes"` on Page_Check and UI_Test, `--debug` by
+hand):
+- Once logged in, the tool runs `apex_session.set_debug` (level 6, app
+  trace) on its own APEX session through SQLcl. This works whatever the
+  app's debugging setting is.
+- After the run it reads `apex_debug_messages` for that session:
+  - per page view: the message count, the errors, the warnings and the time
+  - every error and warning (and every ORA-/PLS- line), with the two
+    messages before it, which usually name the component that failed
+- Page_Check opens modal pages outside a dialog. APEX logs "Dialog page N
+  cannot be rendered" for that, and the trace leaves that error out.
+- With debug, UI_Test's steps get 70 s instead of 85 s.
+
+**View_Screenshot** (Tester and lead): n8n gives agents only a workflow
+tool's JSON, never an image. So the tool workflow's second branch handles it:
+- Load Screenshot (`agents/apex-expert/src/view-screenshot.js`) reads a PNG
+  of the project.
+- An n8n **Anthropic** node ("Look at Screenshot", image analyze) sends it,
+  with the agent's question, to `visionModel` in `apex-expert.json` (default:
+  the Tester's model). It uses the same credential.
+- The agent gets the answer as text.
+
+The build needs the credential's id for that node, so `--tools` also logs
+in to the editor API.
+
+**Sample data** has no tool of its own. The `sample-data` skill (lead and
+Developer) writes a constraint-safe INSERT script, runs it with SQL_Execute,
+and saves it plus a delete script under the project's `test-data/`. The lead
+asks the user at the spec confirmation and never generates data without a
+yes.
 
 **Valid_Props and Example** give the real property names from the SQLcl
 compiler's metadata and Oracle's compiler-backed examples under
@@ -296,25 +331,38 @@ The result separates three things the compiler prints in the same format:
 
 ### Database target
 
-`squad-install.config.json` decides where everything goes. Agents cannot
-choose or change it.
+Three lines in `.env` decide where everything goes. Agents cannot choose or
+change them.
+
+```
+APEX_CONNECTION=MY_DEV_DB
+APEX_WORKSPACE=MY_WORKSPACE
+APEX_SCHEMA=MY_SCHEMA
+```
+
+- `APEX_CONNECTION` is a saved SQLcl connection (`connmgr list`),
+  `APEX_WORKSPACE` the APEX workspace that connection's schema is assigned
+  to. New apps are scaffolded with this workspace name. `APEX_SCHEMA`
+  (default: the workspace) is the schema named in the agents' prompts; the
+  `target` check warns when the connection works in another schema.
+- The tools read them on every call. The prompts, skills and tool
+  descriptions get them when the agents are built. After a change, run
+  `node scripts/squad-install.mjs --probe`, then
+  `node scripts/build-apex-expert.mjs`.
+- Older configs with `connection`, `workspace` and `schema` in
+  `squad-install.config.json` still work; `.env` wins over them.
+
+`squad-install.config.json` holds the rest:
 
 ```json
 {
   "enabled": true,
-  "connection": "APEX_AI",
-  "workspace": "APEX_AI",
-  "schema": "APEX_AI",
   "sqlcl": "~\\AppData\\Local\\sqlcl-current\\sqlcl\\bin\\sql.exe",
   "workingFolder": "workspace"
 }
 ```
 
-- `connection` is a saved SQLcl connection (`connmgr list`), `workspace` the
-  APEX workspace that connection's schema is assigned to. New apps are
-  scaffolded with this workspace name. `schema` (default: `workspace`) is
-  only used in the agents' prompts. `workingFolder` is where New_Project
-  creates projects.
+- `workingFolder` is where New_Project creates projects.
 - Paths may start with `~` (your home folder) or be relative to the project.
   The current file still uses absolute paths, which also work.
 - `"enabled": false` switches the database tools off.

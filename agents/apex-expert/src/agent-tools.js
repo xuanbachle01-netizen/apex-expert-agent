@@ -2,16 +2,18 @@
 // ---- APEX Expert agent tools (workflow APEX_Agent_Tools) ----
 // One Code node behind the APEX Expert agents' database and project tools. The
 // shared helpers above give the session folders and Oracle's scaffolder; the
-// database work is done by scripts/apex-agent-db.mjs (SQLcl on the connection in
-// squad-install.config.json). n8n cancels a workflow tool after 120 s, so every
+// database work is done by scripts/apex-agent-db.mjs (SQLcl on APEX_CONNECTION /
+// APEX_WORKSPACE from .env). n8n cancels a workflow tool after 120 s, so every
 // operation stays below that.
 //   new_project            create a project (session folder), Oracle scaffold unless mode = "empty"
 //   query | execute        SQL_Query / SQL_Execute (sql)
 //   export                 Export_App (session, app_id)
 //   validate | install     Check_App / Install_App (session)
-//   page_check             Page_Check (app_id, pages = optional page numbers)
-//   ui_test                UI_Test (app_id, steps = JSON array or a scenario file, session = optional project)
+//   page_check             Page_Check (app_id, pages = optional page numbers, debug)
+//   ui_test                UI_Test (app_id, steps = JSON array or a scenario file, session = optional project, debug)
 //   target                 database target and compiler versions
+// debug = "yes": APEX debug for the tool's own session, and its errors from apex_debug_messages.
+// View_Screenshot is the workflow's other branch (view-screenshot.js + the Anthropic node).
 const trig = $('When Executed by Another Workflow').first().json;
 const op = String(trig.operation || '').trim();
 const reply = (result) => [{ json: { result } }];
@@ -50,6 +52,7 @@ const sessionArg = () => {
   try { return ['--session', sessionKey(trig.session)]; } catch (e) { return []; }
 };
 const appArg = () => (/^\d{1,9}$/.test(String(trig.app_id || '').trim()) ? ['--app-id', String(trig.app_id).trim()] : []);
+const debugArg = () => (/^\s*(yes|true|y|1|on)\s*$/i.test(String(trig.debug || '')) ? ['--debug'] : []);
 
 if (op === 'new_project') {
   // 8 hex characters like the squad's sessions, so FS_* and Install_App address the folder.
@@ -72,10 +75,13 @@ if (op === 'new_project') {
 }
 
 if (op === 'query' || op === 'execute' || op === 'export' || op === 'validate' || op === 'install' || op === 'page_check' || op === 'ui_test' || op === 'target') {
-  const text = op === 'query' || op === 'execute' ? String(trig.sql || '') : op === 'page_check' ? String(trig.pages || '') : op === 'ui_test' ? String(trig.steps || '') : '';
+  // The model may send a JSON value instead of a string (UI_Test steps as an array): keep it JSON.
+  const asText = (v) => (v == null ? '' : typeof v === 'string' ? v : JSON.stringify(v));
+  const text = op === 'query' || op === 'execute' ? asText(trig.sql) : op === 'page_check' ? asText(trig.pages) : op === 'ui_test' ? asText(trig.steps) : '';
   if ((op === 'query' || op === 'execute') && !text.trim()) return reply('ERROR: pass the SQL in "sql".');
   if (op === 'ui_test' && !text.trim()) return reply('ERROR: pass the scenario in "steps".');
-  const r = await runDbTool(['--op', op, ...sessionArg(), ...appArg()], text, op === 'install' ? 117000 : 112000);
+  const debugFlag = op === 'page_check' || op === 'ui_test' ? debugArg() : [];
+  const r = await runDbTool(['--op', op, ...sessionArg(), ...appArg(), ...debugFlag], text, op === 'install' ? 117000 : 112000);
   return reply(r.text || JSON.stringify(r));
 }
 return reply('ERROR: unknown operation "' + op + '"');

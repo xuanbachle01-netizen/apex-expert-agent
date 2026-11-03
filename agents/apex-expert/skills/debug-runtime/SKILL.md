@@ -10,9 +10,9 @@ Locate the cause of a runtime problem in an APEX application with evidence (debu
 - Tools: SQL_Query, Page_Check, Export_App + FS_Read, inspect-apps for dictionary queries.
 
 ## Steps
-1. Reproduce: Page_Check(app_id, pages) and read the error text it found. For an error that needs a click, a submit or a dialog, reproduce it with UI_Test (if you have it): the failing step shows the message, JavaScript and server errors.
-2. Activity log: `select view_date, apex_user, page_id, elapsed_time, error_message, error_on_component_type, error_on_component_name from apex_workspace_activity_log where application_id = :id and error_message is not null order by view_date desc fetch first 20 rows only`.
-3. Debug messages (when debug was on for that view): `select message_timestamp, message_level, message from apex_debug_messages where application_id = :id and page_id = :p order by message_timestamp desc fetch first 100 rows only`. Level 1 = errors, 4 = info.
+1. Reproduce WITH debug: Page_Check(app_id, pages, debug "yes"). For an error that needs a click, a submit or a dialog, reproduce it with UI_Test(debug "yes"): the failing step shows the message, JavaScript and server errors. The debug trace at the end lists per page_view_id the errors and warnings, each with the two messages before it, which usually name the process, validation, region or AJAX call that failed.
+2. Full log of the failing request: `select message_level, elapsed_time, message from apex_debug_messages where page_view_id = <id from the trace> order by id` (narrow with `and message_level <= 4`, or `and id between ...` around the error). For a slow page, sort the same page view by `execution_time desc` to find the slow step.
+3. Activity log (also for errors the user saw without debug): `select view_date, apex_user, page_id, elapsed_time, error_message, error_on_component_type, error_on_component_name from apex_workspace_activity_log where application_id = :id and error_message is not null order by view_date desc fetch first 20 rows only`.
 4. Database side: INVALID objects (`select object_type, object_name from user_objects where status = 'INVALID'`) and `user_errors` for them; for a query error, run the region's SQL (from apex_application_page_regions.region_source) through SQL_Query with sample bind values.
 5. Map the symptom to its owning component (region source, item source, process, validation, DA, authorization) with the dictionary views; read that component in the exported source when needed.
 6. Report: cause (with the evidence line), the component to fix, the fix. Make the fix only if the user asked for it (apexlang-edit or sql-plsql skill).
@@ -26,7 +26,9 @@ Locate the cause of a runtime problem in an APEX application with evidence (debu
 Page_Check: page 3 FAIL "ORA-00904: STATUS: invalid identifier". Region "Task" source selects STATUS; user_tab_columns of TASKS has no STATUS -> the supporting-objects script never added it. Fix: guarded ALTER (sql-plsql) and reinstall.
 
 ## Gotchas
-- apex_debug_messages only has rows for page views with debug enabled; if empty, rely on the activity log and the definitions.
+- apex_debug_messages only has rows for page views with debug enabled. The user's own page views usually have none: reproduce with debug "yes" instead of searching for old rows.
+- Page_Check opens modal pages outside their dialog; APEX then logs "Dialog page N cannot be rendered", which the trace leaves out. Reproduce errors on modal pages with UI_Test.
+- A UI_Test failure about what is shown (wrong layout, a missing highlight) leaves no debug error: take a {"shot"} and ask View_Screenshot.
 - Errors inside a modal dialog appear on the dialog page, not the parent.
 - Reference files (load_skill with this skill and filePath), Oracle's debugging guidance:
   - `references/failure-map.md` -- symptom to cause map (load first).

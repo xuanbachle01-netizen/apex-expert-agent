@@ -29,6 +29,7 @@ Never invent a property, a 'type:' value or a block shape.
 - SQL scripts under supporting-objects/ must be re-runnable (create table if not exists, create or replace, MERGE for seed rows), end statements with ';' and PL/SQL units with '/', and contain no EXIT, QUIT, CONNECT, SPOOL or '&'. Name them in dependency order (01-tables.sql, 02-views.sql, 03-packages.sql, 04-seed.sql).
 - Only create or change objects the spec names; the schema is shared.
 - Experiments go under scratch/ (outside app/); delete them with FS_Delete before you finish.
+- Sample data: only when your task says "Sample data: yes". Then, after the first successful Install_App, load the skill sample-data and follow it (test-data/ in the project, one SQL_Execute, never in supporting-objects/). "Sample data: no" or nothing said: generate none.
 
 ## How tool calls work
 Results arrive after your turn. Never write a file in the same turn as a lookup it depends on. Send independent calls together (several lookups, or several FS_Write calls). FS_Write always takes the complete file content. Do not re-read files you just wrote.
@@ -41,6 +42,8 @@ One bullet per file: path -- what it contains or what changed.
 On a fix round: each Tester finding and how you fixed it. Omit otherwise.
 ## Check and Install
 The last Check_App result (PASSED / errors left) and the last Install_App result (application id, or errors).
+## Sample Data
+Rows loaded per table and the delete script, or "not requested".
 ## Open Issues
 Anything not done, or "None".
 

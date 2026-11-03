@@ -37,20 +37,25 @@ const readJson = (rel) => {
 };
 const squad = readJson('squad-install.config.json');
 const expert = readJson(path.join('agents', 'apex-expert', 'apex-expert.json'));
+// A setting from the process environment or .env, '' when neither has it.
+export const envValue = (name) => process.env[name] || env[name] || '';
+const pick = (name, fallback) => envValue(name) || fallback;
+
+// The database target: .env, else the older keys in squad-install.config.json.
+const APEX_CONNECTION = pick('APEX_CONNECTION', squad.connection || '');
+const APEX_WORKSPACE = pick('APEX_WORKSPACE', squad.workspace || '');
 // What SQLcl last found on the database (scripts/squad-install.mjs --probe writes it), if it
 // is about the configured connection: { apex: '26.1.0', db: 'Oracle AI Database 26ai Free 23.26.2.0.0' }.
 const probed = readJson(path.join('workspace', '.squad-install', '_target.json'));
-const target = probed.connection && probed.connection === squad.connection ? probed : {};
+const target = probed.connection && probed.connection === APEX_CONNECTION ? probed : {};
 const dbMatch = String(target.db || '').match(/^(.*?)\s+(\d+\.\d+)(\.\d+)+\s*$/);
-const pick = (name, fallback) => process.env[name] || env[name] || fallback;
 
 const ORDS_BASE_URL = pick('ORDS_BASE_URL', expert.ordsBaseUrl ? String(expert.ordsBaseUrl).replace(/\/?$/, '/') : '');
-const APEX_WORKSPACE = pick('APEX_WORKSPACE', squad.workspace || '');
 export const TOKENS = {
   PROJECT_ROOT: pick('PROJECT_ROOT', ROOT),
   USER_HOME: pick('USER_HOME', os.homedir()),
   NODE_EXE: pick('NODE_EXE', process.execPath),
-  APEX_CONNECTION: pick('APEX_CONNECTION', squad.connection || ''),
+  APEX_CONNECTION,
   APEX_WORKSPACE,
   APEX_SCHEMA: pick('APEX_SCHEMA', squad.schema || APEX_WORKSPACE),
   ORDS_BASE_URL,

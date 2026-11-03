@@ -39,9 +39,20 @@ function configPath(p) {
   p = String(p);
   return /^~(?=$|[\\/])/.test(p) ? pathMod.join(USER_HOME, p.slice(1)) : pathMod.resolve(PROJECT_ROOT, p);
 }
+// A setting from the project's .env ('' if not there); n8n's Code nodes cannot read process.env.
+function envValue(name) {
+  let text = '';
+  try { text = fsMod.readFileSync(PROJECT_ROOT + '\\.env', 'utf8'); } catch (e) { return ''; }
+  const m = text.match(new RegExp('^\\s*' + name + '\\s*=\\s*(.*?)\\s*$', 'm'));
+  return m ? m[1].replace(/^["']|["']$/g, '') : '';
+}
+// The database target: APEX_CONNECTION / APEX_WORKSPACE in .env over the config file. Same as
+// loadConfig() in scripts/lib/sqlcl.mjs.
 function squadConfig() {
   let cfg;
   try { cfg = JSON.parse(fsMod.readFileSync(PROJECT_ROOT + '\\squad-install.config.json', 'utf8')) || {}; } catch (e) { return {}; }
+  if (envValue('APEX_CONNECTION')) cfg.connection = envValue('APEX_CONNECTION');
+  if (envValue('APEX_WORKSPACE')) cfg.workspace = envValue('APEX_WORKSPACE');
   if (cfg.sqlcl && /^~|[\\/]/.test(cfg.sqlcl)) cfg.sqlcl = configPath(cfg.sqlcl);
   if (cfg.workingFolder) cfg.workingFolder = configPath(cfg.workingFolder);
   if (Array.isArray(cfg.allowedFolders)) cfg.allowedFolders = cfg.allowedFolders.map(configPath);

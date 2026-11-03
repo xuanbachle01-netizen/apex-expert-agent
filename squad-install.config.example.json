@@ -1,8 +1,5 @@
 {
   "enabled": true,
-  "connection": "APEX_AI",
-  "workspace": "APEX_AI",
-  "schema": "APEX_AI",
   "sqlcl": "~\\AppData\\Local\\sqlcl-current\\sqlcl\\bin\\sql.exe",
   "workingFolder": "workspace",
   "allowedFolders": ["~"],

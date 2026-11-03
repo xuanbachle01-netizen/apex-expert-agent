@@ -7,7 +7,8 @@ Turn each acceptance check into a concrete test, run it, and return per-check re
 
 ## Inputs
 - Project key (session) with spec.md and app/; application id.
-- Tools: Check_App, SQL_Query, Page_Check, UI_Test, FS_Read, Example, Valid_Props.
+- Tools: Check_App, SQL_Query, Page_Check, UI_Test, View_Screenshot, FS_Read, Example, Valid_Props.
+- Whether sample data was loaded (the delegation says so).
 
 ## Steps
 1. FS_Read spec.md; list the acceptance checks AC-1..n.
@@ -21,8 +22,11 @@ Turn each acceptance check into a concrete test, run it, and return per-check re
    - behaviour in SQL/PL/SQL: run the region or LOV query through SQL_Query; call functions that do not write.
    - rendering: Page_Check(app_id) for all pages, and Page_Check(app_id, pages) for a page an AC is about.
    - what a user does: a UI_Test scenario (see below), then SQL_Query to confirm what it changed in the tables.
-4. Record every result with its evidence (the row, the value, the message, the UI_Test step line). An AC you cannot test with these tools is NOT RUN with the reason.
-5. Write the answer in the Tester's final format; last line PASS or FAIL.
+   - how it looks (layout, highlighting, a chart, which messages show): a UI_Test scenario with a {"shot": "..."} step at that moment, then View_Screenshot(session, the shot's path, a precise question).
+   - with sample data: reports show rows, filters and search narrow them, pagination works, LOVs show display values.
+4. Record every result with its evidence (the row, the value, the message, the UI_Test step line, the View_Screenshot answer). An AC you cannot test with these tools is NOT RUN with the reason.
+5. A FAIL that the result does not explain (an APEX error page, "Error processing request", a step that does nothing): run the same Page_Check or UI_Test again with debug "yes" and put the debug trace's error line and component into the finding.
+6. Write the answer in the Tester's final format; last line PASS or FAIL.
 
 ## UI_Test scenarios
 - First learn the page: a scenario of just `[{"go": 3}]` reports its regions, buttons and items (with their names, labels and select-list options). Write the real scenario from that, not from guesses.
@@ -49,3 +53,6 @@ AC-4 "Page 3 status is a select list on LOV TASK_STATUS": `select display_as, lo
 - Item and component names are upper case in the dictionary views and in UI_Test.
 - If Page_Check or UI_Test reports LOGIN FAILED or NOT CONFIGURED, report those checks as NOT RUN with that message; do not guess.
 - Load debug-runtime when a page fails, to name the cause in the finding.
+- Page_Check opens modal pages outside their dialog; the debug trace leaves out the "Dialog page cannot be rendered" error that APEX logs for that. Test modal pages with UI_Test.
+- View_Screenshot answers from the image only. Ask one precise question per call ("Is the row 'UITEST task 1' highlighted red?"), not "is everything fine?".
+- A screenshot is the full page at 1366 px width; a modal dialog shows on top of its parent page.

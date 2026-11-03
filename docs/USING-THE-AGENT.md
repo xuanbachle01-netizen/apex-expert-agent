@@ -74,10 +74,16 @@ want to happen, not only what is wrong.
    summary, its assumptions and any open questions. Answer the questions or
    ask for changes; the Analyst revises the spec. Say "go" (or "go ahead with
    the assumptions") to continue. Nothing is built before you confirm.
+
+   In the same message the agent asks whether you want **sample data**
+   (about 25 rows per table) loaded after the install, so the app can be
+   tested and shown with realistic data. Answer "yes", "yes, 100 tasks" or
+   "no". No answer counts as no.
 3. **Developer.**
    - Writes the app (and its tables under `supporting-objects/`).
    - Repeats until the APEX compiler reports 0 errors.
    - Installs it.
+   - Loads the sample data, if you said yes.
 
    The first install creates a new application id.
 4. **Tester.** Tests the installed app against every acceptance check:
@@ -125,8 +131,33 @@ Every piece of work on app files happens in a **project**: a folder
 
   It reports each step, plus the messages, JavaScript errors and server
   errors, and saves screenshots under the project's `test-results/`.
+- **View_Screenshot** lets the agent "see" a UI_Test screenshot. The agent
+  itself cannot see images, so a vision model looks at the screenshot and
+  answers the agent's question in text, for example "Is the overdue row
+  highlighted?". The Tester uses it before it reports anything about how a
+  page looks.
+- **Debug trace.** Page_Check and UI_Test can turn APEX debug on for their
+  own session. The agent then gets the errors and warnings APEX logged,
+  with the process, validation or query that failed. Ask for it with e.g.
+  "Why does saving on page 3 of app 100 fail? Use the debug trace."
 - **Test data the Tester creates starts with `UITEST `.** It must clean that
   data up again and never touch data it did not create.
+
+## Sample data
+
+Sample data is always optional. The agent only generates it after you say
+yes: in a build when it asks at the spec, or when you ask for it, e.g.
+"Generate sample data for app 100: 50 tasks."
+- It writes realistic rows that respect the tables' constraints, with
+  parents first.
+- It saves the script and a delete script in the project:
+  `test-data/sample-data.sql` and `test-data/delete-sample-data.sql`.
+- Sample rows are marked (a text column ends with ` [sample]`, or the delete
+  script names their key range).
+- Sample data never goes into `supporting-objects/`, so it is not shipped
+  with the app.
+- For an existing app, the rows go into the tables the live app uses. The
+  agent tells you that before it asks.
 
 ## Safety: what the agent will and won't do
 
