@@ -3,7 +3,7 @@ name: Requirements to APEX technical spec
 description: Use when turning a functional requirement (a user's description of an app or a change) into the technical requirement spec.md for an Oracle APEX app - data model, pages, components, security, acceptance checks. This is the Analyst's main task. Not for writing APEXlang or SQL code.
 ---
 ## Overview
-Produce `spec.md`: a complete, testable technical requirement for an APEX @@APEX_VERSION@@ app that a developer can build in APEXlang without asking questions.
+Produce `spec.md`: a complete, testable technical requirement for an APEX app (the APEX version DB_Target reports) that a developer can build in APEXlang without asking questions.
 
 ## Inputs
 - The requirement text, the project key, and for a change the exported app under app/.

@@ -161,7 +161,8 @@ yes: in a build when it asks at the spec, or when you ask for it, e.g.
 
 ## Safety: what the agent will and won't do
 
-- It works only on the configured connection, workspace and schema. It
+- It works only on the configured connection, workspace and schema (ask
+  "Which database do you work on?" to see them). It
   cannot switch to another database.
 - The schema may be shared by several apps. It changes only what your
   request is about, and drops or truncates a table only when you ask for

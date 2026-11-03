@@ -1,12 +1,12 @@
 ---
 name: Oracle APEXlang (Oracle APEX skill)
-description: Oracle's official APEX skill (oracle/skills apex/apexlang), adapted to this n8n agent. Use for ANY work on APEXlang (.apx) code - generating, editing, reviewing, checking or debugging an APEX @@APEX_VERSION@@ application, page or component - and whenever you must decide what APEXlang can express. Not needed for plain SQL/PL/SQL questions or for reading the APEX dictionary views.
+description: Oracle's official APEX skill (oracle/skills apex/apexlang), adapted to this n8n agent. Use for ANY work on APEXlang (.apx) code - generating, editing, reviewing, checking or debugging an APEX application, page or component - and whenever you must decide what APEXlang can express. Not needed for plain SQL/PL/SQL questions or for reading the APEX dictionary views.
 ---
 ## Overview
 This is Oracle's APEXlang skill, ported to the tools of this n8n agent. Follow Oracle's rules (in the references) for how to generate and change APEXlang, but run every step with the tools below; Oracle's own commands (`node tools/apexctl.mjs ...`) are not available here.
 
 ## Inputs
-- The target is fixed: SQLcl connection @@APEX_CONNECTION@@, APEX workspace @@APEX_WORKSPACE@@, APEX @@APEX_VERSION@@, schema @@APEX_SCHEMA@@. Oracle's skill tells you to ask the user "Offline or Live DB" and for `db_connection_name` / the workspace name: do NOT ask. It is always Live DB with these values.
+- The target is fixed: the SQLcl connection, APEX workspace, APEX version and schema that DB_Target reports (or the "Target:" lines of your task). Oracle's skill tells you to ask the user "Offline or Live DB" and for `db_connection_name` / the workspace name: do NOT ask. It is always Live DB with these values.
 - A project key (session) whose app/ folder holds the app: from New_Project (new app, Oracle's scaffold) or Export_App (existing app).
 
 ## Steps

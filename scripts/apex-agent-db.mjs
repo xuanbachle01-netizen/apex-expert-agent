@@ -5,7 +5,7 @@
 // choose another target.
 //
 // Usage: node scripts/apex-agent-db.mjs --op <op> [--session <key>] [--app-id <n>] [--text-file <file>] [--debug] [--json]
-//   target      connection, schema, APEX and compiler versions (asks the database)
+//   target      DB_Target: connection, schema, database, APEX and compiler versions, app URL (asks the database)
 //   query       ONE read-only SELECT / WITH from --text-file; CSV, at most 200 rows
 //   execute     a SQL / PL/SQL script from --text-file, committed; reports errors and invalid objects
 //   export      APEXlang export of application --app-id into workspace/<session>/app/, pinned
@@ -26,8 +26,9 @@ import http from 'node:http';
 import { spawnSync } from 'node:child_process';
 import {
   ROOT, WS_ROOT, CONFIG_FILE, REGISTRY_DIR, TMP_ROOT, readJson, writeJson, clip, posix, loadConfig, configPaths, findAppRoot, walk, runSqlcl, sections,
-  SETTINGS, TARGET_SQL, workspaceSql, parseTarget, connectFailure, target, parseSqlErrors, parseCompilerOutput, groupByMessage, stageApp, runSqlclAsync,
+  SETTINGS, TARGET_SQL, workspaceSql, parseTarget, connectFailure, target, targetText, parseSqlErrors, parseCompilerOutput, groupByMessage, stageApp, runSqlclAsync,
 } from './lib/sqlcl.mjs';
+import { env, envValue } from './lib/env.mjs';
 
 const SQLCL_TIMEOUT_MS = 100 * 1000; // n8n cancels a workflow tool after 120 s
 const MAX_ROWS = 200;
@@ -55,14 +56,10 @@ function finish(result) {
   process.stdout.write((json ? JSON.stringify(result) : result.text) + '\n');
   process.exit(result.ok === false ? 1 : 0);
 }
-const env = (() => {
-  try {
-    return Object.fromEntries(fs.readFileSync(path.join(ROOT, '.env'), 'utf8').split(/\r?\n/)
-      .map((l) => l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/)).filter(Boolean).map((m) => [m[1], m[2].replace(/^["']|["']$/g, '')]));
-  } catch {
-    return {};
-  }
-})();
+// ORDS: ORDS_BASE_URL in .env, else "ordsBaseUrl" in apex-expert.json ('/' = not set). Apps
+// run at APEX_APP_URL, else <ORDS>/r/<workspace path prefix>/ (same as scripts/lib/env.mjs).
+const ordsBase = () => String(envValue('ORDS_BASE_URL') || (readJson(AGENT_CFG) || {}).ordsBaseUrl || '').replace(/\/?$/, '/');
+const appBase = (cfg) => String(envValue('APEX_APP_URL') || ordsBase() + 'r/' + cfg.workspace.toLowerCase() + '/').replace(/\/?$/, '/');
 
 // ---------------------------------------------------------------- SQL text checks
 // Text with string literals, quoted identifiers and comments blanked out, so the
@@ -444,17 +441,15 @@ function pageErrors(html) {
 }
 
 async function pageCheck(cfg) {
-  const agentCfg = readJson(AGENT_CFG) || {};
-  const base = String(agentCfg.ordsBaseUrl || '').replace(/\/?$/, '/');
-  if (base === '/') return { ok: null, status: 'unavailable', text: 'Page_Check: NOT CONFIGURED -- set "ordsBaseUrl" in agents/apex-expert/apex-expert.json.' };
+  const base = ordsBase();
+  if (base === '/') return { ok: null, status: 'unavailable', text: 'Page_Check: NOT CONFIGURED -- set ORDS_BASE_URL in .env (or "ordsBaseUrl" in agents/apex-expert/apex-expert.json).' };
   if (!/^\d{1,9}$/.test(appIdArg)) return { ok: false, status: 'usage', text: 'Page_Check: pass app_id, the numeric APEX application id.' };
   const info = appInfo(cfg, +appIdArg);
   if (info.problem) return { ok: null, status: 'unavailable', text: 'Page_Check: ' + info.problem };
   const wanted = (text.match(/\d+/g) || []).map(Number);
   const pages = info.pages.filter((p) => (wanted.length ? wanted.includes(p.id) : p.id !== 0 && p.id < 9999 && !/login/i.test(p.alias)));
   if (!pages.length) return { ok: false, status: 'usage', text: 'Page_Check: application ' + info.app.id + ' has none of the requested pages. Its pages: ' + info.pages.map((p) => p.id).join(', ') };
-  const ws = cfg.workspace.toLowerCase();
-  const appUrl = base + 'r/' + ws + '/' + info.app.alias.toLowerCase() + '/';
+  const appUrl = appBase(cfg) + info.app.alias.toLowerCase() + '/';
   const client = httpClient(base);
   const out = [];
   const started = Date.now();
@@ -535,9 +530,8 @@ async function pageCheck(cfg) {
 async function uiTest(cfg) {
   const started = Date.now();
   const { runUiTest, parseSteps, STEPS_HELP } = await import('./lib/ui-test.mjs');
-  const agentCfg = readJson(AGENT_CFG) || {};
-  const base = String(agentCfg.ordsBaseUrl || '').replace(/\/?$/, '/');
-  if (base === '/') return { ok: null, status: 'unavailable', text: 'UI_Test: NOT CONFIGURED -- set "ordsBaseUrl" in agents/apex-expert/apex-expert.json.' };
+  const base = ordsBase();
+  if (base === '/') return { ok: null, status: 'unavailable', text: 'UI_Test: NOT CONFIGURED -- set ORDS_BASE_URL in .env (or "ordsBaseUrl" in agents/apex-expert/apex-expert.json).' };
   if (!/^\d{1,9}$/.test(appIdArg)) return { ok: false, status: 'usage', text: 'UI_Test: pass app_id, the numeric APEX application id.' };
   const dir = session ? sessionDirOf(session) : '';
   if (session && !fs.existsSync(dir)) return { ok: false, status: 'usage', text: 'UI_Test: unknown project "' + session + '". Pass a project key from New_Project, or "-" for none.' };
@@ -554,7 +548,7 @@ async function uiTest(cfg) {
   if (parsed.problem) return { ok: false, status: 'usage', text: 'UI_Test: ' + parsed.problem };
   const info = appInfo(cfg, +appIdArg);
   if (info.problem) return { ok: null, status: 'unavailable', text: 'UI_Test: ' + info.problem };
-  const appUrl = base + 'r/' + cfg.workspace.toLowerCase() + '/' + info.app.alias.toLowerCase() + '/';
+  const appUrl = appBase(cfg) + info.app.alias.toLowerCase() + '/';
   // Watchdog: whatever hangs, answer before n8n cancels the tool at 120 s (finish() exits the process).
   const watchdog = new Promise((resolve) => setTimeout(() => resolve({ ok: null, status: 'unavailable', text: 'UI_Test: UNAVAILABLE -- the browser did not finish within 105 s; split the scenario or check the step that hangs.' }), Math.max(10000, started + 105 * 1000 - Date.now())).unref());
   let debugOn = false;
@@ -573,12 +567,36 @@ async function uiTest(cfg) {
   return { ...r, text: (r.text.startsWith('UI_Test:') ? r.text : head + r.text) + trace + (r.status === 'usage' ? '\n' + STEPS_HELP : '') };
 }
 
+// ---------------------------------------------------------------- target
+// DB_Target: what the agents work on, asked from the database each time. The prompts name
+// none of it, so a changed .env needs no rebuild.
+function targetReport(cfg) {
+  const r = target(cfg, true);
+  if (!r.target) return r;
+  const t = r.target;
+  const ords = ordsBase();
+  return {
+    ...r,
+    text: [
+      'DB_Target -- every tool works only on this target; there is no other database you may use.',
+      '- SQLcl connection: ' + t.connection,
+      '- Schema: ' + t.schema + ' (shared by several apps; also the parsing schema of new apps)',
+      '- Database: ' + t.db,
+      '- APEX: ' + t.apex + ', workspace ' + t.workspace + (t.workspaceFound ? '' : ' (WARNING: not assigned to schema ' + t.schema + ')'),
+      '- Apps run at: ' + (ords === '/' ? '(ORDS not configured)' : appBase(cfg) + '<app alias, lower case>/') + ' (Oracle APEX Accounts login)',
+      '- Page_Check / UI_Test log in as the configured test user' + (env.APEX_TEST_USER ? '' : ' (WARNING: APEX_TEST_USER is not set in .env)') + '.',
+      // The rest of target()'s text: the SQLcl compiler and its warnings.
+      '-' + r.text.slice(targetText(t).length),
+    ].join('\n'),
+  };
+}
+
 // ---------------------------------------------------------------- main
 const cfg = loadConfig(null);
 if (cfg.problem) finish({ ok: null, status: 'disabled', text: 'APEX database tool: ' + cfg.problem });
 note = cfg.note || '';
 try {
-  if (op === 'target') finish(target(cfg, true));
+  if (op === 'target') finish(targetReport(cfg));
   else if (op === 'query') finish(query(cfg));
   else if (op === 'execute') finish(execute(cfg));
   else if (op === 'export') finish(exportApp(cfg));

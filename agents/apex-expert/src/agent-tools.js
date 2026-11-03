@@ -11,7 +11,7 @@
 //   validate | install     Check_App / Install_App (session)
 //   page_check             Page_Check (app_id, pages = optional page numbers, debug)
 //   ui_test                UI_Test (app_id, steps = JSON array or a scenario file, session = optional project, debug)
-//   target                 database target and compiler versions
+//   target                 DB_Target: connection, schema, versions, workspace, app URL (live from .env + the database)
 // debug = "yes": APEX debug for the tool's own session, and its errors from apex_debug_messages.
 // View_Screenshot is the workflow's other branch (view-screenshot.js + the Anthropic node).
 const trig = $('When Executed by Another Workflow').first().json;

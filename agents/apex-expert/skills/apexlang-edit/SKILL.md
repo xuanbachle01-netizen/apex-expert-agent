@@ -33,7 +33,7 @@ Add an interactive report page 4 "Projects" on table PROJECTS: Example("interact
 ## Gotchas
 - Install_App creates a NEW application on the first install of a scaffolded project; afterwards it updates the same id. A project from Export_App is pinned to the exported id from the start.
 - Compiler warnings do not block; fix "Invalid ..." / "... ignored" warnings in files you touch.
-- The SQLcl compiler can be built for a newer APEX release than the database (APEX @@APEX_VERSION@@): if Check_App passes but Install_App reports an import error, the database is right; fix what the import error names.
+- The SQLcl compiler can be built for a newer APEX release than the database (DB_Target shows both versions): if Check_App passes but Install_App reports an import error, the database is right; fix what the import error names.
 - Reference files (load_skill with this skill and filePath):
   - `references/apexlang-dsl-reference.md` -- Oracle's APEXlang grammar reference (load before writing a new kind of block).
   - `references/compiler-prop-map.md` -- property names as the compiler expects them.

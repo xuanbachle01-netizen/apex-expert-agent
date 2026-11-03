@@ -69,7 +69,7 @@ contains a `.env` value or the home folder path.
    `~` yet.
 8. Copy `.env.example` to `.env` and fill it in (see **Setup**), with the
    connection name from step 6 as `APEX_CONNECTION`.
-9. Run `node scripts/squad-install.mjs --probe` (it reads the APEX and DB versions),
+9. Run `node scripts/squad-install.mjs --probe` (it checks the connection),
    then `node scripts/build-apex-expert.mjs`. On a fresh n8n the build:
    - imports and activates the helper workflows
    - finds the credential by its name
@@ -79,8 +79,18 @@ contains a `.env` value or the home folder path.
 
 ## Environment
 
-Nothing in the sources hardcodes this machine. Paths, the node.exe and the
-APEX target are written as `@@NAME@@` tokens, which
+Nothing in the sources hardcodes this machine or the database.
+
+**The database target** (`APEX_CONNECTION`, `APEX_WORKSPACE`, `APEX_SCHEMA`,
+optionally `ORDS_BASE_URL` and `APEX_APP_URL`) is read from `.env` at run
+time; see **Database target** below. No prompt, skill or tool description
+names it. The agents call the tool **DB_Target** to learn it: it asks the
+database and reports the connection, schema, database and APEX version,
+workspace, the URL apps run at and the SQLcl compiler. The lead calls it once
+per conversation and passes its lines to the sub-agents ("Target: ...").
+Switching to another database therefore needs no rebuild.
+
+**Paths and the node.exe** are written as `@@NAME@@` tokens, which
 [scripts/lib/env.mjs](scripts/lib/env.mjs) fills in:
 
 | Token | Default | Used in |
@@ -88,32 +98,16 @@ APEX target are written as `@@NAME@@` tokens, which
 | `@@PROJECT_ROOT@@` | this checkout's folder | Code nodes, saved workflows |
 | `@@USER_HOME@@` | your home folder | Code nodes (`~` in the config) |
 | `@@NODE_EXE@@` | the node running the script | Code nodes |
-| `@@APEX_CONNECTION@@` | `APEX_CONNECTION` in .env (else `connection` in squad-install.config.json) | prompts, skills, tool descriptions |
-| `@@APEX_WORKSPACE@@` | `APEX_WORKSPACE` in .env (else `workspace` in the config) | prompts, skills, chat page |
-| `@@APEX_SCHEMA@@` | `APEX_SCHEMA` in .env (else `schema`, else the workspace) | prompts, skills |
-| `@@ORDS_BASE_URL@@` | `ordsBaseUrl` in agents/apex-expert/apex-expert.json | Page_Check description |
-| `@@APEX_APP_URL@@` | `<ORDS>/r/<workspace, lower case>/` | prompts, skills |
-| `@@APEX_VERSION@@` | last database probe, e.g. `26.1` | prompts, skills, chat page |
-| `@@DB_PRODUCT@@` | last database probe, e.g. `Oracle AI Database 26ai Free` | prompts, skills |
-| `@@DB_VERSION@@` | last database probe, e.g. `23.26` | sql-plsql skill |
 
-Any of them can be overridden by a line with the same name in `.env`. The
-probe values come from `workspace/.squad-install/_target.json`, which
-`node scripts/squad-install.mjs --probe` writes after asking the database;
-they are used only when it is about the configured connection. After
-switching to another database, run the probe, then rebuild the agents.
-
-The values are filled in when the agents are built, so n8n (and the agent
-pages in the editor) always show the concrete values, never the tokens.
+Any of them can be overridden by a line with the same name in `.env`. They
+are filled in when workflows and agents are sent to n8n, so the Code nodes
+in n8n show the concrete paths.
 
 - **Render** (tokens → values) runs on everything sent to n8n: `npm run push`
   and `build-apex-expert.mjs`. Inside `jsCode` the value is
   JavaScript-escaped (`\` doubled). An unknown or empty token stops the run.
 - **Templatize** (values → tokens) runs on everything saved from n8n
-  (`npm run pull`, and the server responses the build script saves). It
-  covers only the tokens whose value is unambiguous (paths, node.exe, ORDS
-  URLs). Connection, workspace and schema are often the same name, so they
-  stay literal in saved files and are tokens only in the sources.
+  (`npm run pull`, and the server responses the build script saves).
 
 ## Usage
 
@@ -178,7 +172,7 @@ on the credential named there. The ids of a machine's agents are in
 | Workflow | Provides |
 |---|---|
 | APEX Expert Chat | The chat page that runs APEX Expert (workflow) |
-| APEX_Agent_Tools | New_Project, SQL_Query, SQL_Execute, Export_App, Check_App, Install_App, Page_Check, UI_Test, View_Screenshot |
+| APEX_Agent_Tools | DB_Target, New_Project, SQL_Query, SQL_Execute, Export_App, Check_App, Install_App, Page_Check, UI_Test, View_Screenshot |
 | FS_Workspace_Tool | FS_List, FS_Read, FS_Write, FS_Delete |
 | Squad_APEXlang_Tools | Valid_Props, Example (the name is from an earlier project) |
 
@@ -343,12 +337,15 @@ APEX_SCHEMA=MY_SCHEMA
 - `APEX_CONNECTION` is a saved SQLcl connection (`connmgr list`),
   `APEX_WORKSPACE` the APEX workspace that connection's schema is assigned
   to. New apps are scaffolded with this workspace name. `APEX_SCHEMA`
-  (default: the workspace) is the schema named in the agents' prompts; the
-  `target` check warns when the connection works in another schema.
-- The tools read them on every call. The prompts, skills and tool
-  descriptions get them when the agents are built. After a change, run
-  `node scripts/squad-install.mjs --probe`, then
-  `node scripts/build-apex-expert.mjs`.
+  (default: the workspace) is the schema you expect; DB_Target warns when
+  the connection works in another one.
+- `ORDS_BASE_URL` (optional) overrides `ordsBaseUrl` in
+  `agents/apex-expert/apex-expert.json`; `APEX_APP_URL` (optional) overrides
+  the app URL `<ORDS>/r/<workspace, lower case>/`.
+- The tools read them on every call, and the agents learn them with
+  DB_Target, so a change takes effect with the next tool call; no rebuild.
+  A conversation that already called DB_Target keeps the old values: start
+  a new chat.
 - Older configs with `connection`, `workspace` and `schema` in
   `squad-install.config.json` still work; `.env` wins over them.
 

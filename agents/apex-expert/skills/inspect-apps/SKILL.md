@@ -6,11 +6,11 @@ description: Use when the user asks about their existing APEX applications or wo
 Answer questions about existing APEX applications from the APEX dictionary views (read-only SQL_Query), and only export the source (Export_App) when the views are not enough.
 
 ## Inputs
-- Workspace @@APEX_WORKSPACE@@. The application id or alias (if the user gives a name, find the id first).
+- The workspace from DB_Target. The application id or alias (if the user gives a name, find the id first).
 - Tools: SQL_Query; Export_App + FS_Read for the full APEXlang source.
 
 ## Steps
-1. Find the app: `select application_id, alias, application_name, pages, authentication_scheme_type, last_updated_on from apex_applications where workspace = '@@APEX_WORKSPACE@@' order by application_id`.
+1. Find the app: `select application_id, alias, application_name, pages, authentication_scheme_type, last_updated_on from apex_applications where workspace = '<workspace>' order by application_id`.
 2. Query only the views the question needs (all have APPLICATION_ID; page-level views also PAGE_ID):
    - pages: `apex_application_pages` (page_id, page_name, page_alias, page_mode, page_requires_authentication, authorization_scheme, page_group)
    - regions: `apex_application_page_regions` (region_name, source_type, display_sequence, static_id, query_type, table_name, region_source, parent_region_id)

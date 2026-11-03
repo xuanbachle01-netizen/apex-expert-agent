@@ -3,10 +3,10 @@ name: SQL and PL/SQL for APEX
 description: Use when writing, reviewing or running SQL or PL/SQL for an APEX app - tables, views, constraints, sequences, packages, triggers, seed data, supporting-objects scripts - or when using APEX PL/SQL APIs (apex_session, apex_util, apex_collection, apex_debug, apex_mail, apex_json, apex_string, apex_error). Covers how to run scripts with SQL_Execute safely. Not for APEXlang page code.
 ---
 ## Overview
-Write correct, re-runnable @@DB_PRODUCT@@ SQL and PL/SQL for APEX apps, run it with SQL_Execute (user-approved) and confirm it compiled.
+Write correct, re-runnable Oracle SQL and PL/SQL for APEX apps, run it with SQL_Execute (user-approved) and confirm it compiled.
 
 ## Inputs
-- Schema @@APEX_SCHEMA@@ on @@DB_PRODUCT@@ (@@DB_VERSION@@); APEX @@APEX_VERSION@@ APIs available.
+- The target schema, database version and APEX version from DB_Target (or the "Target:" lines of your task); write only SQL and APEX APIs that this version has.
 - Existing objects: query `user_tables`, `user_tab_columns`, `user_constraints`, `user_objects` before creating or changing anything.
 
 ## Steps
